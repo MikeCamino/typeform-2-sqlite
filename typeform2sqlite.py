@@ -53,7 +53,7 @@ cur.execute(f"create table if not exists {TABLE_FIELDS} (id VARCHAR, title TEXT,
 # Multiselect responses
 cur.execute(f"create table if not exists {TABLE_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer)")
 
-fields = [] # All fields except multiselect
+fields = [] # All fields except multiselect, group and statement
 multichoice_field_names = []
 
 for f in form['fields']:
@@ -61,6 +61,8 @@ for f in form['fields']:
     if f['type'] == 'multiple_choice' and f['properties']['allow_multiple_selection']:
         multichoice_field_names.append(f["ref"])
         allow_multiple_selection = True
+    elif f["type"] == "group" or f["type"] == "statement":
+        continue
     else:
         fields.append(f)
     
