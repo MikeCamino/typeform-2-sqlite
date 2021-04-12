@@ -113,7 +113,7 @@ git clone https://github.com/MikeCamino/typeform-2-sqlite.git
 
 ### Download
 
-- Download [https://github.com/MikeCamino/typeform-2-sql/archive/refs/heads/main.zip](https://github.com/MikeCamino/typeform-2-sql/archive/refs/heads/main.zip)
+- Download [https://github.com/MikeCamino/typeform-2-sqlile/archive/refs/heads/main.zip](https://github.com/MikeCamino/typeform-2-sqlite/archive/refs/heads/main.zip)
 - Unpack to a directory of your choice
 
 ## Install Python 3
