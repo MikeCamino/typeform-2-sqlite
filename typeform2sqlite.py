@@ -30,10 +30,11 @@ def field_to_column_def(field):
     return f"'{field['ref'].replace('-', '_')}' {mapping[field['type']]}"
 
 
-# constants
+# constants and advanced settings
 TABLE_FIELDS = "fields"
 TABLE_RESPONSES = "responses"
 TABLE_MULTISELECT = "multiselect"
+RESPONSES_PAGE_SIZE = 1000 # 1000 - is maximum that Typeform allows
 
 tf = Typeform(settings.TYPEFORM_API_TOKEN)
 
@@ -41,6 +42,8 @@ con = sqlite3.connect(settings.DB_FILE_NAME)
 cur = con.cursor()
 
 form = tf.forms.get(settings.FORM_ID)
+
+print(f"Form \"{form['title']}\" ({form['id']}) retireved successfully")
 
 # Clean up DB
 cur.execute(f"drop table if exists {TABLE_FIELDS}")
@@ -70,14 +73,22 @@ for f in form['fields']:
 
 con.commit()
 
+print("Fields and multiselect tables created successfully")
+
 # Create responses table
 col_names = ",".join(field_to_column_def(x) for x in fields)
 responses_query = f"create table if not exists {TABLE_RESPONSES} (id VARCHAR, landed_at DATETIME, submitted_at DATETIME, {col_names})"
 cur.execute(responses_query)
 
+print("Responses table created successfully")
 
 # Get form responses
-responses = tf.responses.list(settings.FORM_ID)
+responses = tf.responses.list(settings.FORM_ID, RESPONSES_PAGE_SIZE)
+
+print(f"Retrieved {len(responses['items'])} results of {responses['total_items']}")
+
+answers_written = 0
+multichoice_answers_written = 0
 
 for r in responses["items"]:
     answers = {}
@@ -97,9 +108,11 @@ for r in responses["items"]:
                     id = a["choices"]["ids"][i]
                     label = a["choices"]["labels"][i]
                     cur.execute(f"insert into {TABLE_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer) values (?,?,?,?,?)", (answers["id"], a["field"]["id"], ref, id, label))
+                    multichoice_answers_written += 1
             # 'other' option
             if a["choices"].get("other", False):
                 cur.execute(f"insert into {TABLE_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer) values (?,?,?,?,?)", (answers["id"], a["field"]["id"], ref, "other", a["choices"]["other"]))
+                multichoice_answers_written += 1
         else:
             if a["type"] == "choice":
                 if a["choice"]["id"] == "other":
@@ -113,7 +126,12 @@ for r in responses["items"]:
     answer_columns = "','".join(x.replace("-", "_") for x in answers)
     answer_insert = f"insert into {TABLE_RESPONSES} ('{answer_columns}') values ({','.join(['?'] * len(answers))})"
     cur.execute(answer_insert, tuple(answers.values()))
-
+    answers_written += 1
 
 con.commit()
+
+print(f"{answers_written} answers and {multichoice_answers_written} multichoice answers written to DB")
+
 con.close()
+
+print(f"Export finished succesfully to {settings.DB_FILE_NAME}")
