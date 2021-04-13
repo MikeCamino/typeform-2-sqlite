@@ -32,8 +32,6 @@ Very straightforward: script connects to Typeform API, gets your form data and c
 
 ## Tables
 
-Typeform-2-sqlite creates 3 tables:
-
 ### fields
 
 Reference for all questions in your form: its title, ref and some options
@@ -44,9 +42,17 @@ All responses except multi-select questions in a form of a flat table.
 
 Question's `ref` is a name of a column (see below on how to set `ref`s for your questions)
 
-### multiselect
+### multiselect tables
 
-All multi-select question answers
+If `SEPARATE_TABLES_FOR_MULTISELECT` is settings is set to True (default) Typeform-2-sqlite will create a table for each multiselect question with following fields
+
+`response_id` - ID from `responses` table.
+
+`answer_id` - answer option ID. May be used to calculate number of unique answers for example (since answers themselves may be identical for different questions).
+
+`answer` - answer data itself.
+
+If `SEPARATE_TABLES_FOR_MULTISELECT` is set to False one common table for all multiselect fields will be created:
 
 `response_id` - ID from `responses` table.
 
@@ -113,7 +119,7 @@ git clone https://github.com/MikeCamino/typeform-2-sqlite.git
 
 ### Download
 
-- Download [https://github.com/MikeCamino/typeform-2-sqlile/archive/refs/heads/main.zip](https://github.com/MikeCamino/typeform-2-sqlite/archive/refs/heads/main.zip)
+- Download [https://github.com/MikeCamino/typeform-2-sqlite/archive/refs/heads/main.zip](https://github.com/MikeCamino/typeform-2-sqlite/archive/refs/heads/main.zip)
 - Unpack to a directory of your choice
 
 ## Install Python 3
@@ -137,6 +143,10 @@ In `settings.py` set following options:
 `FORM_ID` - ID of your form. May be found in URL when you edit your form `https://admin.typeform.com/form/<Form ID>/create`
 
 `DB_FILE_NAME` - name of DB to be created
+
+### Advanced settings
+
+There are various advanced settings for experienced users. Refer to comments in settings.py file
 
 ## Run
 
