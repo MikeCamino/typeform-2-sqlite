@@ -30,12 +30,6 @@ def field_to_column_def(field):
     return f"'{field['ref'].replace('-', '_')}' {mapping[field['type']]}"
 
 
-# constants and advanced settings
-TABLE_FIELDS = "fields"
-TABLE_RESPONSES = "responses"
-TABLE_MULTISELECT = "multiselect"
-RESPONSES_PAGE_SIZE = 100 # 1000 - is maximum that Typeform allows
-
 tf = Typeform(settings.TYPEFORM_API_TOKEN)
 
 con = sqlite3.connect(settings.DB_FILE_NAME)
@@ -46,15 +40,15 @@ form = tf.forms.get(settings.FORM_ID)
 print(f"Form \"{form['title']}\" ({form['id']}) retireved successfully")
 
 # Clean up DB
-cur.execute(f"drop table if exists {TABLE_FIELDS}")
-cur.execute(f"drop table if exists {TABLE_MULTISELECT}")
-cur.execute(f"drop table if exists {TABLE_RESPONSES}")
+cur.execute(f"drop table if exists {settings.TABLE_NAME_FIELDS}")
+cur.execute(f"drop table if exists {settings.TABLE_NAME_MULTISELECT}")
+cur.execute(f"drop table if exists {settings.TABLE_NAME_RESPONSES}")
 
 # Create tables
 # Fields metadata
-cur.execute(f"create table if not exists {TABLE_FIELDS} (id VARCHAR, title TEXT, ref VARCHAR, type VARCHAR, allow_multiple BOOLEAN)")
+cur.execute(f"create table if not exists {settings.TABLE_NAME_FIELDS} (id VARCHAR, title TEXT, ref VARCHAR, type VARCHAR, allow_multiple BOOLEAN)")
 # Multiselect responses
-cur.execute(f"create table if not exists {TABLE_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer)")
+cur.execute(f"create table if not exists {settings.TABLE_NAME_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer)")
 
 fields = [] # All fields except multiselect, group and statement
 multichoice_field_names = []
@@ -77,7 +71,7 @@ print("Fields and multiselect tables created successfully")
 
 # Create responses table
 col_names = ",".join(field_to_column_def(x) for x in fields)
-responses_query = f"create table if not exists {TABLE_RESPONSES} (id VARCHAR, landed_at DATETIME, submitted_at DATETIME, {col_names})"
+responses_query = f"create table if not exists {settings.TABLE_NAME_RESPONSES} (id VARCHAR, landed_at DATETIME, submitted_at DATETIME, {col_names})"
 cur.execute(responses_query)
 
 print("Responses table created successfully")
@@ -88,7 +82,7 @@ last_response_token = None
 
 # Get form responses
 while True:
-    responses = tf.responses.list(settings.FORM_ID, RESPONSES_PAGE_SIZE, before=last_response_token)
+    responses = tf.responses.list(settings.FORM_ID, settings.RESPONSES_PAGE_SIZE, before=last_response_token)
 
     print(f"Retrieved {len(responses['items'])} results of remaining {responses['total_items']}")
 
@@ -109,11 +103,11 @@ while True:
                     for i in range(len(a["choices"]["labels"])):
                         id = a["choices"]["ids"][i]
                         label = a["choices"]["labels"][i]
-                        cur.execute(f"insert into {TABLE_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer) values (?,?,?,?,?)", (answers["id"], a["field"]["id"], ref, id, label))
+                        cur.execute(f"insert into {settings.TABLE_NAME_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer) values (?,?,?,?,?)", (answers["id"], a["field"]["id"], ref, id, label))
                         multichoice_answers_written += 1
                 # 'other' option
                 if a["choices"].get("other", False):
-                    cur.execute(f"insert into {TABLE_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer) values (?,?,?,?,?)", (answers["id"], a["field"]["id"], ref, "other", a["choices"]["other"]))
+                    cur.execute(f"insert into {settings.TABLE_NAME_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer) values (?,?,?,?,?)", (answers["id"], a["field"]["id"], ref, "other", a["choices"]["other"]))
                     multichoice_answers_written += 1
             else:
                 if a["type"] == "choice":
@@ -126,7 +120,7 @@ while True:
         
         # writing single choice answers to table
         answer_columns = "','".join(x.replace("-", "_") for x in answers)
-        answer_insert = f"insert into {TABLE_RESPONSES} ('{answer_columns}') values ({','.join(['?'] * len(answers))})"
+        answer_insert = f"insert into {settings.TABLE_NAME_RESPONSES} ('{answer_columns}') values ({','.join(['?'] * len(answers))})"
         cur.execute(answer_insert, tuple(answers.values()))
         answers_written += 1
 
