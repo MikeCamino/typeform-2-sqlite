@@ -34,7 +34,7 @@ def field_to_column_def(field):
 TABLE_FIELDS = "fields"
 TABLE_RESPONSES = "responses"
 TABLE_MULTISELECT = "multiselect"
-RESPONSES_PAGE_SIZE = 1000 # 1000 - is maximum that Typeform allows
+RESPONSES_PAGE_SIZE = 100 # 1000 - is maximum that Typeform allows
 
 tf = Typeform(settings.TYPEFORM_API_TOKEN)
 
@@ -82,53 +82,61 @@ cur.execute(responses_query)
 
 print("Responses table created successfully")
 
-# Get form responses
-responses = tf.responses.list(settings.FORM_ID, RESPONSES_PAGE_SIZE)
-
-print(f"Retrieved {len(responses['items'])} results of {responses['total_items']}")
-
 answers_written = 0
 multichoice_answers_written = 0
+last_response_token = None
 
-for r in responses["items"]:
-    answers = {}
-    multichoice_answers = {}
+# Get form responses
+while True:
+    responses = tf.responses.list(settings.FORM_ID, RESPONSES_PAGE_SIZE, before=last_response_token)
 
-    # Common answer fields
-    answers["id"] = r["response_id"]
-    answers["landed_at"] = r["landed_at"]
-    answers["submitted_at"] = r["submitted_at"]
+    print(f"Retrieved {len(responses['items'])} results of remaining {responses['total_items']}")
 
-    for a in r["answers"]:
-        ref = a["field"]["ref"]
-        if ref in multichoice_field_names:
-            # Named options
-            if a["choices"].get("labels", False):
-                for i in range(len(a["choices"]["labels"])):
-                    id = a["choices"]["ids"][i]
-                    label = a["choices"]["labels"][i]
-                    cur.execute(f"insert into {TABLE_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer) values (?,?,?,?,?)", (answers["id"], a["field"]["id"], ref, id, label))
+    for r in responses["items"]:
+        answers = {}
+        multichoice_answers = {}
+
+        # Common answer fields
+        answers["id"] = r["response_id"]
+        answers["landed_at"] = r["landed_at"]
+        answers["submitted_at"] = r["submitted_at"]
+
+        for a in r["answers"]:
+            ref = a["field"]["ref"]
+            if ref in multichoice_field_names:
+                # Named options
+                if a["choices"].get("labels", False):
+                    for i in range(len(a["choices"]["labels"])):
+                        id = a["choices"]["ids"][i]
+                        label = a["choices"]["labels"][i]
+                        cur.execute(f"insert into {TABLE_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer) values (?,?,?,?,?)", (answers["id"], a["field"]["id"], ref, id, label))
+                        multichoice_answers_written += 1
+                # 'other' option
+                if a["choices"].get("other", False):
+                    cur.execute(f"insert into {TABLE_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer) values (?,?,?,?,?)", (answers["id"], a["field"]["id"], ref, "other", a["choices"]["other"]))
                     multichoice_answers_written += 1
-            # 'other' option
-            if a["choices"].get("other", False):
-                cur.execute(f"insert into {TABLE_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer) values (?,?,?,?,?)", (answers["id"], a["field"]["id"], ref, "other", a["choices"]["other"]))
-                multichoice_answers_written += 1
-        else:
-            if a["type"] == "choice":
-                if a["choice"]["id"] == "other":
-                    answers[ref] = a["choice"]["other"]
-                else:
-                    answers[ref] = a["choice"]["label"]
             else:
-                answers[ref] = a[a["type"]]
-    
-    # writing single choice answers to table
-    answer_columns = "','".join(x.replace("-", "_") for x in answers)
-    answer_insert = f"insert into {TABLE_RESPONSES} ('{answer_columns}') values ({','.join(['?'] * len(answers))})"
-    cur.execute(answer_insert, tuple(answers.values()))
-    answers_written += 1
+                if a["type"] == "choice":
+                    if a["choice"]["id"] == "other":
+                        answers[ref] = a["choice"]["other"]
+                    else:
+                        answers[ref] = a["choice"]["label"]
+                else:
+                    answers[ref] = a[a["type"]]
+        
+        # writing single choice answers to table
+        answer_columns = "','".join(x.replace("-", "_") for x in answers)
+        answer_insert = f"insert into {TABLE_RESPONSES} ('{answer_columns}') values ({','.join(['?'] * len(answers))})"
+        cur.execute(answer_insert, tuple(answers.values()))
+        answers_written += 1
 
-con.commit()
+    con.commit()
+
+    if len(responses["items"]) == 0 or len(responses["items"]) == responses['total_items']:
+        print("All responses processed")
+        break
+
+    last_response_token = responses["items"][-1]["token"]
 
 print(f"{answers_written} answers and {multichoice_answers_written} multichoice answers written to DB")
 
