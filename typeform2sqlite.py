@@ -1,6 +1,7 @@
 from typeform import Typeform
 import sqlite3
 import settings
+import os
 
 # Returns column definition based on typeform field type
 def field_to_column_def(field):
@@ -32,6 +33,8 @@ def field_to_column_def(field):
 
 tf = Typeform(settings.TYPEFORM_API_TOKEN)
 
+if os.path.exists(settings.DB_FILE_NAME):
+    os.remove(settings.DB_FILE_NAME)
 con = sqlite3.connect(settings.DB_FILE_NAME)
 cur = con.cursor()
 
@@ -39,16 +42,9 @@ form = tf.forms.get(settings.FORM_ID)
 
 print(f"Form \"{form['title']}\" ({form['id']}) retireved successfully")
 
-# Clean up DB
-cur.execute(f"drop table if exists {settings.TABLE_NAME_FIELDS}")
-cur.execute(f"drop table if exists {settings.TABLE_NAME_MULTISELECT}")
-cur.execute(f"drop table if exists {settings.TABLE_NAME_RESPONSES}")
-
-# Create tables
-# Fields metadata
+# Create fields metadata table
 cur.execute(f"create table if not exists {settings.TABLE_NAME_FIELDS} (id VARCHAR, title TEXT, ref VARCHAR, type VARCHAR, allow_multiple BOOLEAN)")
-# Multiselect responses
-cur.execute(f"create table if not exists {settings.TABLE_NAME_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer)")
+print(f"'{settings.TABLE_NAME_FIELDS}' table created successfully")
 
 fields = [] # All fields except multiselect, group and statement
 multichoice_field_names = []
@@ -65,16 +61,24 @@ for f in form['fields']:
     
     cur.execute("insert into fields values (?,?,?,?,?)", (f['id'], f['title'], f['ref'], f['type'], allow_multiple_selection))
 
-con.commit()
+if settings.SEPARATE_TABLES_FOR_MULTISELECT:
+    # Multiselect responses in separate tables
+    for mf in multichoice_field_names:
+        cur.execute(f"create table if not exists '{settings.TABLE_PREFIX_MULTISELECT}{mf.replace('-','_')}' (response_id, answer_id, answer)")
+        print(f"Multiselect field '{settings.TABLE_PREFIX_MULTISELECT}{mf.replace('-','_')}' table created successfully")
+else:
+    # Multiselect responses in single table
+    cur.execute(f"create table if not exists {settings.TABLE_NAME_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer)")
+    print(f"'{settings.TABLE_NAME_MULTISELECT}' table created successfully")
 
-print("Fields and multiselect tables created successfully")
+con.commit()
 
 # Create responses table
 col_names = ",".join(field_to_column_def(x) for x in fields)
 responses_query = f"create table if not exists {settings.TABLE_NAME_RESPONSES} (id VARCHAR, landed_at DATETIME, submitted_at DATETIME, {col_names})"
 cur.execute(responses_query)
 
-print("Responses table created successfully")
+print(f"'{settings.TABLE_NAME_RESPONSES}' table created successfully")
 
 answers_written = 0
 multichoice_answers_written = 0
@@ -103,11 +107,18 @@ while True:
                     for i in range(len(a["choices"]["labels"])):
                         id = a["choices"]["ids"][i]
                         label = a["choices"]["labels"][i]
-                        cur.execute(f"insert into {settings.TABLE_NAME_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer) values (?,?,?,?,?)", (answers["id"], a["field"]["id"], ref, id, label))
+
+                        if settings.SEPARATE_TABLES_FOR_MULTISELECT:
+                            cur.execute(f"insert into '{settings.TABLE_PREFIX_MULTISELECT}{ref.replace('-','_')}' (response_id, answer_id, answer) values (?,?,?)", (answers["id"], id, label))
+                        else:
+                            cur.execute(f"insert into {settings.TABLE_NAME_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer) values (?,?,?,?,?)", (answers["id"], a["field"]["id"], ref, id, label))
                         multichoice_answers_written += 1
                 # 'other' option
                 if a["choices"].get("other", False):
-                    cur.execute(f"insert into {settings.TABLE_NAME_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer) values (?,?,?,?,?)", (answers["id"], a["field"]["id"], ref, "other", a["choices"]["other"]))
+                    if settings.SEPARATE_TABLES_FOR_MULTISELECT:
+                        cur.execute(f"insert into '{settings.TABLE_PREFIX_MULTISELECT}{ref.replace('-','_')}' (response_id, answer_id, answer) values (?,?,?)", (answers["id"], "other", a["choices"]["other"]))
+                    else:
+                        cur.execute(f"insert into {settings.TABLE_NAME_MULTISELECT} (response_id, field_id, field_ref, answer_id, answer) values (?,?,?,?,?)", (answers["id"], a["field"]["id"], ref, "other", a["choices"]["other"]))
                     multichoice_answers_written += 1
             else:
                 if a["type"] == "choice":
