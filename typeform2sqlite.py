@@ -49,17 +49,28 @@ print(f"'{settings.TABLE_NAME_FIELDS}' table created successfully")
 fields = [] # All fields except multiselect, group and statement
 multichoice_field_names = []
 
-for f in form['fields']:
-    allow_multiple_selection = False
-    if f['type'] == 'multiple_choice' and f['properties']['allow_multiple_selection']:
-        multichoice_field_names.append(f["ref"])
+def add_field_to_metadata_table(field):
+    if field['type'] == 'multiple_choice' and field['properties']['allow_multiple_selection']:
+        multichoice_field_names.append(field["ref"])
         allow_multiple_selection = True
-    elif f["type"] == "group" or f["type"] == "statement":
-        continue
     else:
-        fields.append(f)
-    
-    cur.execute("insert into fields values (?,?,?,?,?)", (f['id'], f['title'], f['ref'], f['type'], allow_multiple_selection))
+        fields.append(field)
+        allow_multiple_selection = False
+
+    cur.execute("insert into fields values (?,?,?,?,?)", (field['id'], field['title'], field['ref'], field['type'], allow_multiple_selection))
+
+def process_fields(fields):
+    for f in fields:
+        if f["type"] == "group":
+            # group fields contains other fields inside
+            process_fields(f["properties"]["fields"])
+            continue
+        elif f["type"] == "statement":
+            continue
+
+        add_field_to_metadata_table(f)
+
+process_fields(form["fields"])
 
 if settings.SEPARATE_TABLES_FOR_MULTISELECT:
     # Multiselect responses in separate tables
